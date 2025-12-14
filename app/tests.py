@@ -3,7 +3,7 @@ Task Tracker API Tests
 
 Comprehensive test suite for the Task Tracker API including:
 - User registration
-- JWT authentication
+- Cookie-based JWT authentication with email login
 - Task CRUD operations
 - Filtering, searching, and ordering
 - Permission checks
@@ -82,7 +82,7 @@ class UserRegistrationTests(APITestCase):
 
     def test_register_user_success(self):
         """Test successful user registration."""
-        url = reverse('user-register')
+        url = reverse('auth-register')
         data = {
             'username': 'newuser',
             'email': 'newuser@example.com',
@@ -96,7 +96,7 @@ class UserRegistrationTests(APITestCase):
 
     def test_register_user_password_mismatch(self):
         """Test registration with mismatched passwords."""
-        url = reverse('user-register')
+        url = reverse('auth-register')
         data = {
             'username': 'newuser',
             'email': 'newuser@example.com',
@@ -113,7 +113,7 @@ class UserRegistrationTests(APITestCase):
             email='existing@example.com',
             password='testpass123'
         )
-        url = reverse('user-register')
+        url = reverse('auth-register')
         data = {
             'username': 'existinguser',
             'email': 'new@example.com',
@@ -130,7 +130,7 @@ class UserRegistrationTests(APITestCase):
             email='existing@example.com',
             password='testpass123'
         )
-        url = reverse('user-register')
+        url = reverse('auth-register')
         data = {
             'username': 'newuser',
             'email': 'existing@example.com',
@@ -141,8 +141,8 @@ class UserRegistrationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class JWTAuthenticationTests(APITestCase):
-    """Tests for JWT authentication."""
+class EmailLoginTests(APITestCase):
+    """Tests for email-based login with cookies."""
 
     def setUp(self):
         """Set up test data."""
@@ -152,60 +152,146 @@ class JWTAuthenticationTests(APITestCase):
             password='testpass123'
         )
 
-    def test_obtain_token_success(self):
-        """Test obtaining JWT tokens."""
-        url = reverse('token_obtain_pair')
+    def test_login_success(self):
+        """Test successful login with email."""
+        url = reverse('auth-login')
         data = {
-            'username': 'testuser',
+            'email': 'test@example.com',
             'password': 'testpass123'
         }
         response = self.client.post(url, data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
+        self.assertIn('user', response.data)
+        self.assertEqual(response.data['message'], 'Login successful')
 
-    def test_obtain_token_invalid_credentials(self):
-        """Test obtaining tokens with invalid credentials."""
-        url = reverse('token_obtain_pair')
+        # Check cookies are set
+        self.assertIn('access_token', response.cookies)
+        self.assertIn('refresh_token', response.cookies)
+
+    def test_login_invalid_email(self):
+        """Test login with non-existent email."""
+        url = reverse('auth-login')
         data = {
-            'username': 'testuser',
+            'email': 'nonexistent@example.com',
+            'password': 'testpass123'
+        }
+        response = self.client.post(url, data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_login_invalid_password(self):
+        """Test login with wrong password."""
+        url = reverse('auth-login')
+        data = {
+            'email': 'test@example.com',
             'password': 'wrongpassword'
         }
         response = self.client.post(url, data)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_refresh_token(self):
+    def test_logout(self):
+        """Test logout clears cookies."""
+        # First login
+        login_url = reverse('auth-login')
+        login_data = {
+            'email': 'test@example.com',
+            'password': 'testpass123'
+        }
+        login_response = self.client.post(login_url, login_data)
+        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+        # Then logout
+        logout_url = reverse('auth-logout')
+        logout_response = self.client.post(logout_url)
+        self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(logout_response.data['message'], 'Logout successful')
+
+    def test_token_refresh(self):
         """Test refreshing access token."""
-        # First obtain tokens
-        obtain_url = reverse('token_obtain_pair')
-        data = {
-            'username': 'testuser',
+        # First login
+        login_url = reverse('auth-login')
+        login_data = {
+            'email': 'test@example.com',
             'password': 'testpass123'
         }
-        response = self.client.post(obtain_url, data)
-        refresh_token = response.data['refresh']
+        login_response = self.client.post(login_url, login_data)
+        refresh_token = login_response.data['refresh']
 
-        # Refresh the access token
-        refresh_url = reverse('token_refresh')
-        response = self.client.post(refresh_url, {'refresh': refresh_token})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', response.data)
+        # Refresh token
+        refresh_url = reverse('auth-refresh')
+        refresh_response = self.client.post(refresh_url, {'refresh': refresh_token})
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', refresh_response.data)
 
-    def test_verify_token(self):
-        """Test verifying a token."""
-        # Obtain tokens
-        obtain_url = reverse('token_obtain_pair')
-        data = {
-            'username': 'testuser',
+    def test_token_verify(self):
+        """Test verifying access token."""
+        # First login to set cookies
+        login_url = reverse('auth-login')
+        login_data = {
+            'email': 'test@example.com',
             'password': 'testpass123'
         }
-        response = self.client.post(obtain_url, data)
-        access_token = response.data['access']
+        login_response = self.client.post(login_url, login_data)
+        access_token = login_response.data['access']
 
-        # Verify the token
-        verify_url = reverse('token_verify')
-        response = self.client.post(verify_url, {'token': access_token})
+        # Set the cookie for verification
+        self.client.cookies['access_token'] = access_token
+
+        # Verify token
+        verify_url = reverse('auth-verify')
+        verify_response = self.client.get(verify_url)
+        self.assertEqual(verify_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(verify_response.data['valid'])
+
+
+class CookieAuthenticationTests(APITestCase):
+    """Tests for cookie-based authentication."""
+
+    def setUp(self):
+        """Set up test data."""
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='test@example.com',
+            password='testpass123'
+        )
+        self.client = APIClient()
+
+    def test_access_with_cookie(self):
+        """Test accessing protected endpoint with cookie."""
+        # Login to get token
+        login_url = reverse('auth-login')
+        login_response = self.client.post(login_url, {
+            'email': 'test@example.com',
+            'password': 'testpass123'
+        })
+        access_token = login_response.data['access']
+
+        # Set cookie and access protected endpoint
+        self.client.cookies['access_token'] = access_token
+
+        profile_url = reverse('auth-me')
+        response = self.client.get(profile_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['email'], 'test@example.com')
+
+    def test_access_with_bearer_token(self):
+        """Test that Bearer token still works as fallback."""
+        # Login to get token
+        login_url = reverse('auth-login')
+        login_response = self.client.post(login_url, {
+            'email': 'test@example.com',
+            'password': 'testpass123'
+        })
+        access_token = login_response.data['access']
+
+        # Use Bearer token header
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
+
+        profile_url = reverse('auth-me')
+        response = self.client.get(profile_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['email'], 'test@example.com')
 
 
 class TaskAPITests(APITestCase):
@@ -225,10 +311,10 @@ class TaskAPITests(APITestCase):
         )
         self.client = APIClient()
 
-        # Get token and authenticate
-        url = reverse('token_obtain_pair')
-        response = self.client.post(url, {
-            'username': 'testuser',
+        # Login and get token
+        login_url = reverse('auth-login')
+        response = self.client.post(login_url, {
+            'email': 'test@example.com',
             'password': 'testpass123'
         })
         self.token = response.data['access']
@@ -382,9 +468,10 @@ class TaskAPITests(APITestCase):
 
     def test_unauthenticated_access(self):
         """Test that unauthenticated users cannot access tasks."""
-        self.client.credentials()  # Remove authentication
+        # Create a new client without any authentication
+        unauthenticated_client = APIClient()
         url = reverse('task-list')
-        response = self.client.get(url)
+        response = unauthenticated_client.get(url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
@@ -400,10 +487,10 @@ class UserProfileTests(APITestCase):
         )
         self.client = APIClient()
 
-        # Get token and authenticate
-        url = reverse('token_obtain_pair')
-        response = self.client.post(url, {
-            'username': 'testuser',
+        # Login and get token
+        login_url = reverse('auth-login')
+        response = self.client.post(login_url, {
+            'email': 'test@example.com',
             'password': 'testpass123'
         })
         self.token = response.data['access']
@@ -411,7 +498,7 @@ class UserProfileTests(APITestCase):
 
     def test_get_profile(self):
         """Test getting user profile."""
-        url = reverse('user-profile')
+        url = reverse('auth-me')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['username'], 'testuser')
@@ -419,7 +506,8 @@ class UserProfileTests(APITestCase):
 
     def test_profile_unauthenticated(self):
         """Test that unauthenticated users cannot access profile."""
-        self.client.credentials()  # Remove authentication
-        url = reverse('user-profile')
-        response = self.client.get(url)
+        # Create a new client without any authentication
+        unauthenticated_client = APIClient()
+        url = reverse('auth-me')
+        response = unauthenticated_client.get(url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

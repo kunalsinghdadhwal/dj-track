@@ -2,41 +2,16 @@
 Task Tracker API URL Configuration
 
 This module defines the root URL patterns for the Task Tracker API,
-including JWT authentication endpoints, API documentation, and app routes.
+including cookie-based JWT authentication endpoints and API documentation.
 """
 
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
-)
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
     SpectacularRedocView,
 )
-from drf_spectacular.utils import extend_schema
-
-# Extend schema for JWT views
-TokenObtainPairView = extend_schema(
-    tags=['Authentication'],
-    summary='Obtain JWT token pair',
-    description='Get access and refresh tokens using username and password.',
-)(TokenObtainPairView)
-
-TokenRefreshView = extend_schema(
-    tags=['Authentication'],
-    summary='Refresh access token',
-    description='Get a new access token using a valid refresh token.',
-)(TokenRefreshView)
-
-TokenVerifyView = extend_schema(
-    tags=['Authentication'],
-    summary='Verify token',
-    description='Verify that a token is valid.',
-)(TokenVerifyView)
 
 
 def scalar_docs_view(request):
@@ -85,23 +60,6 @@ urlpatterns = [
     # Admin site
     path('admin/', admin.site.urls),
 
-    # JWT Authentication endpoints
-    path(
-        'api/token/',
-        TokenObtainPairView.as_view(),
-        name='token_obtain_pair'
-    ),
-    path(
-        'api/token/refresh/',
-        TokenRefreshView.as_view(),
-        name='token_refresh'
-    ),
-    path(
-        'api/token/verify/',
-        TokenVerifyView.as_view(),
-        name='token_verify'
-    ),
-
     # OpenAPI Schema
     path(
         'api/schema/',
@@ -128,6 +86,6 @@ urlpatterns = [
         name='redoc'
     ),
 
-    # App routes (tasks, registration, etc.)
+    # App routes (auth, tasks, users, etc.)
     path('api/', include('app.urls')),
 ]

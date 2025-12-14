@@ -1,10 +1,11 @@
 # Task Tracker API
 
-A production-ready RESTful API for managing tasks with JWT authentication, built with Django REST Framework.
+A production-ready RESTful API for managing tasks with JWT authentication stored in HTTP-only cookies, built with Django REST Framework.
 
 ## Features
 
-- **User Authentication**: JWT-based authentication with access and refresh tokens
+- **Cookie-based JWT Authentication**: Secure HTTP-only cookies for token storage (XSS protection)
+- **Email Login**: Login using email and password
 - **User Registration**: Create new accounts with validated passwords
 - **Task Management**: Full CRUD operations for personal tasks
 - **Task Privacy**: Each user can only access their own tasks
@@ -19,7 +20,7 @@ A production-ready RESTful API for managing tasks with JWT authentication, built
 
 - **Django 5.x**: Web framework
 - **Django REST Framework**: API toolkit
-- **djangorestframework-simplejwt**: JWT authentication
+- **djangorestframework-simplejwt**: JWT authentication with cookie support
 - **drf-spectacular**: OpenAPI 3 schema generation
 - **django-filter**: Advanced filtering
 - **SQLite**: Database (easily switchable to PostgreSQL)
@@ -29,19 +30,20 @@ A production-ready RESTful API for managing tasks with JWT authentication, built
 ```
 dj-jwt/
 ├── simplejwt/              # Django project configuration
-│   ├── settings.py         # Project settings
+│   ├── settings.py         # Project settings with cookie JWT config
 │   ├── urls.py             # Root URL configuration
 │   ├── wsgi.py             # WSGI configuration
 │   └── asgi.py             # ASGI configuration
 ├── app/                    # Task tracker application
 │   ├── models.py           # Task model
-│   ├── views.py            # ViewSets and API views
+│   ├── views.py            # ViewSets and auth views
 │   ├── serializers.py      # DRF serializers
 │   ├── permissions.py      # Custom permissions
 │   ├── filters.py          # Task filters
+│   ├── authentication.py   # Cookie-based JWT authentication
 │   ├── admin.py            # Admin configuration
 │   ├── urls.py             # App URL patterns
-│   └── tests.py            # Test suite
+│   └── tests.py            # Test suite (33 tests)
 ├── manage.py               # Django management script
 ├── requirements.txt        # Python dependencies
 ├── LICENSE                 # MIT License
@@ -100,16 +102,12 @@ dj-jwt/
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/token/` | Obtain JWT token pair |
-| POST | `/api/token/refresh/` | Refresh access token |
-| POST | `/api/token/verify/` | Verify token validity |
-
-### Users
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/register/` | Register new user |
-| GET | `/api/profile/` | Get current user profile |
+| POST | `/api/auth/register/` | Register new user |
+| POST | `/api/auth/login/` | Login with email & password |
+| POST | `/api/auth/logout/` | Logout and clear cookies |
+| POST | `/api/auth/refresh/` | Refresh access token |
+| GET | `/api/auth/verify/` | Verify token validity |
+| GET | `/api/auth/me/` | Get current user profile |
 
 ### Tasks
 
@@ -138,7 +136,7 @@ dj-jwt/
 ### Register a New User
 
 ```bash
-curl -X POST http://localhost:8000/api/register/ \
+curl -X POST http://localhost:8000/api/auth/register/ \
   -H "Content-Type: application/json" \
   -d '{
     "username": "johndoe",
@@ -158,13 +156,14 @@ curl -X POST http://localhost:8000/api/register/ \
 }
 ```
 
-### Obtain JWT Tokens
+### Login with Email
 
 ```bash
-curl -X POST http://localhost:8000/api/token/ \
+curl -X POST http://localhost:8000/api/auth/login/ \
   -H "Content-Type: application/json" \
+  -c cookies.txt \
   -d '{
-    "username": "johndoe",
+    "email": "john@example.com",
     "password": "SecurePass123!"
   }'
 ```
@@ -172,12 +171,37 @@ curl -X POST http://localhost:8000/api/token/ \
 **Response:**
 ```json
 {
-  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
-  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+  "message": "Login successful",
+  "user": {
+    "id": 1,
+    "username": "johndoe",
+    "email": "john@example.com",
+    "date_joined": "2025-01-15T10:30:00Z"
+  },
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
 }
 ```
 
-### Create a Task
+**Cookies set:**
+- `access_token` (HTTP-only, 30 min)
+- `refresh_token` (HTTP-only, 7 days)
+
+### Create a Task (Using Cookies)
+
+```bash
+curl -X POST http://localhost:8000/api/tasks/ \
+  -H "Content-Type: application/json" \
+  -b cookies.txt \
+  -d '{
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "priority": "high",
+    "due_date": "2025-02-01"
+  }'
+```
+
+### Create a Task (Using Bearer Token)
 
 ```bash
 curl -X POST http://localhost:8000/api/tasks/ \
@@ -191,67 +215,50 @@ curl -X POST http://localhost:8000/api/tasks/ \
   }'
 ```
 
-**Response:**
-```json
-{
-  "id": 1,
-  "title": "Complete project documentation",
-  "description": "Write comprehensive API documentation",
-  "status": "todo",
-  "priority": "high",
-  "due_date": "2025-02-01",
-  "created_at": "2025-01-15T10:35:00Z",
-  "updated_at": "2025-01-15T10:35:00Z"
-}
-```
-
 ### List Tasks with Filtering
 
 ```bash
 # Filter by status
 curl -X GET "http://localhost:8000/api/tasks/?status=todo" \
-  -H "Authorization: Bearer <your_access_token>"
+  -b cookies.txt
 
 # Filter by priority
 curl -X GET "http://localhost:8000/api/tasks/?priority=high" \
-  -H "Authorization: Bearer <your_access_token>"
+  -b cookies.txt
 
 # Search by title/description
 curl -X GET "http://localhost:8000/api/tasks/?search=documentation" \
-  -H "Authorization: Bearer <your_access_token>"
+  -b cookies.txt
 
 # Order by due date
 curl -X GET "http://localhost:8000/api/tasks/?ordering=due_date" \
-  -H "Authorization: Bearer <your_access_token>"
+  -b cookies.txt
 
 # Filter overdue tasks
 curl -X GET "http://localhost:8000/api/tasks/?is_overdue=true" \
-  -H "Authorization: Bearer <your_access_token>"
+  -b cookies.txt
 ```
 
-### Update a Task
+### Refresh Token
 
 ```bash
-curl -X PATCH http://localhost:8000/api/tasks/1/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <your_access_token>" \
-  -d '{
-    "status": "in_progress"
-  }'
+curl -X POST http://localhost:8000/api/auth/refresh/ \
+  -b cookies.txt \
+  -c cookies.txt
 ```
 
-### Mark Task as Complete
+### Logout
 
 ```bash
-curl -X POST http://localhost:8000/api/tasks/1/complete/ \
-  -H "Authorization: Bearer <your_access_token>"
+curl -X POST http://localhost:8000/api/auth/logout/ \
+  -b cookies.txt
 ```
 
 ### Get Task Statistics
 
 ```bash
 curl -X GET http://localhost:8000/api/tasks/stats/ \
-  -H "Authorization: Bearer <your_access_token>"
+  -b cookies.txt
 ```
 
 **Response:**
@@ -272,16 +279,6 @@ curl -X GET http://localhost:8000/api/tasks/stats/ \
 }
 ```
 
-### Refresh Access Token
-
-```bash
-curl -X POST http://localhost:8000/api/token/refresh/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "refresh": "<your_refresh_token>"
-  }'
-```
-
 ## Task Model
 
 | Field | Type | Description |
@@ -295,6 +292,28 @@ curl -X POST http://localhost:8000/api/token/refresh/ \
 | created_at | DateTime | Auto-set on creation |
 | updated_at | DateTime | Auto-updated on save |
 | user | ForeignKey | Owner of the task |
+
+## Authentication
+
+### Cookie-based Authentication (Recommended for Browsers)
+
+The API uses HTTP-only cookies for secure token storage:
+
+1. **Login** at `/api/auth/login/` with email and password
+2. Cookies are automatically set:
+   - `access_token`: Short-lived access token (30 min)
+   - `refresh_token`: Long-lived refresh token (7 days)
+3. Include cookies in subsequent requests (automatic in browsers)
+4. **Refresh** tokens at `/api/auth/refresh/` before access token expires
+5. **Logout** at `/api/auth/logout/` to clear cookies and blacklist tokens
+
+### Bearer Token Authentication (For API Clients)
+
+For non-browser clients, use the Authorization header:
+
+```
+Authorization: Bearer <access_token>
+```
 
 ## Running Tests
 
@@ -314,20 +333,20 @@ python manage.py test -v 2
 
 ## Configuration
 
-### Environment Variables (Production)
+### Cookie Settings (in settings.py)
 
-For production, set these environment variables:
-
-```bash
-SECRET_KEY=your-super-secret-key
-DEBUG=False
-DATABASE_URL=postgres://user:pass@localhost:5432/tasktracker
-ALLOWED_HOSTS=yourdomain.com,api.yourdomain.com
+```python
+SIMPLE_JWT = {
+    'AUTH_COOKIE': 'access_token',
+    'AUTH_COOKIE_REFRESH': 'refresh_token',
+    'AUTH_COOKIE_SECURE': True,       # HTTPS only in production
+    'AUTH_COOKIE_HTTP_ONLY': True,    # XSS protection
+    'AUTH_COOKIE_SAMESITE': 'Lax',    # CSRF protection
+}
 ```
 
-### JWT Token Settings
+### Token Lifetimes
 
-Default token lifetimes (configurable in `settings.py`):
 - Access Token: 30 minutes
 - Refresh Token: 7 days
 
@@ -348,24 +367,26 @@ Alternative documentation:
 - ReDoc: `/api/docs/redoc/`
 - Raw OpenAPI Schema: `/api/schema/`
 
-## Security Considerations
+## Security Features
 
-- JWT tokens are short-lived (30 min access, 7 days refresh)
-- Refresh token rotation is enabled
-- All task endpoints require authentication
-- Users can only access their own tasks
-- Passwords are validated against Django's password validators
-- CORS is configured for development (restrict in production)
+- **HTTP-only Cookies**: Tokens stored in HTTP-only cookies prevent XSS attacks
+- **Short-lived Access Tokens**: 30 minute lifetime limits exposure
+- **Token Rotation**: Refresh tokens are rotated on use
+- **Token Blacklisting**: Logout invalidates refresh tokens
+- **SameSite Cookies**: Protection against CSRF attacks
+- **User Isolation**: Users can only access their own tasks
+- **Password Validation**: Django's built-in password validators
 
 ## Production Deployment
 
 1. Set `DEBUG=False`
 2. Configure a proper `SECRET_KEY`
 3. Switch to PostgreSQL
-4. Set up HTTPS
+4. Set up HTTPS (required for secure cookies)
 5. Configure `ALLOWED_HOSTS`
-6. Use environment variables for sensitive data
-7. Set up proper CORS settings
+6. Set `AUTH_COOKIE_SECURE=True`
+7. Use environment variables for sensitive data
+8. Set up proper CORS settings
 
 ## License
 

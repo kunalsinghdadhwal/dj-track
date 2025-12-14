@@ -2,12 +2,23 @@
 Task Tracker App URL Configuration
 
 This module defines URL patterns for the Task Tracker app,
-including task CRUD endpoints and user registration.
+including authentication, user management, and task endpoints.
 """
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import TaskViewSet, UserRegistrationView, UserProfileView
+from .views import (
+    # Authentication views
+    LoginView,
+    LogoutView,
+    TokenRefreshView,
+    TokenVerifyView,
+    # User views
+    UserRegistrationView,
+    UserProfileView,
+    # Task views
+    TaskViewSet,
+)
 
 
 # Create router for ViewSets
@@ -15,20 +26,46 @@ router = DefaultRouter()
 router.register(r'tasks', TaskViewSet, basename='task')
 
 urlpatterns = [
-    # User registration
+    # ==========================================================================
+    # Authentication endpoints (cookie-based JWT)
+    # ==========================================================================
     path(
-        'register/',
+        'auth/register/',
         UserRegistrationView.as_view(),
-        name='user-register'
+        name='auth-register'
     ),
-
-    # User profile
     path(
-        'profile/',
-        UserProfileView.as_view(),
-        name='user-profile'
+        'auth/login/',
+        LoginView.as_view(),
+        name='auth-login'
+    ),
+    path(
+        'auth/logout/',
+        LogoutView.as_view(),
+        name='auth-logout'
+    ),
+    path(
+        'auth/refresh/',
+        TokenRefreshView.as_view(),
+        name='auth-refresh'
+    ),
+    path(
+        'auth/verify/',
+        TokenVerifyView.as_view(),
+        name='auth-verify'
     ),
 
-    # ViewSet routes (tasks)
+    # ==========================================================================
+    # User endpoints
+    # ==========================================================================
+    path(
+        'auth/me/',
+        UserProfileView.as_view(),
+        name='auth-me'
+    ),
+
+    # ==========================================================================
+    # Task endpoints (via router)
+    # ==========================================================================
     path('', include(router.urls)),
 ]
