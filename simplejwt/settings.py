@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     # Third-party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',  # For logout/token invalidation
     'django_filters',
     'drf_spectacular',
     'corsheaders',
@@ -150,9 +151,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # =============================================================================
 
 REST_FRAMEWORK = {
-    # Authentication
+    # Authentication - Cookie-based JWT with fallback to header
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'app.authentication.CookieJWTAuthentication',
     ],
 
     # Permissions - require authentication by default
@@ -196,7 +197,7 @@ SIMPLE_JWT = {
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
 
-    # Token headers
+    # Token headers (fallback for API clients)
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
 
@@ -206,6 +207,14 @@ SIMPLE_JWT = {
 
     # Token claims
     'TOKEN_TYPE_CLAIM': 'token_type',
+
+    # Cookie settings for browser-based authentication
+    'AUTH_COOKIE': 'access_token',
+    'AUTH_COOKIE_REFRESH': 'refresh_token',
+    'AUTH_COOKIE_SECURE': not DEBUG,  # True in production (HTTPS only)
+    'AUTH_COOKIE_HTTP_ONLY': True,    # Prevents JavaScript access (XSS protection)
+    'AUTH_COOKIE_PATH': '/',
+    'AUTH_COOKIE_SAMESITE': 'Lax',    # CSRF protection
 }
 
 
@@ -218,25 +227,26 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': '''
 ## Task Tracker REST API
 
-A production-ready RESTful API for managing tasks with JWT authentication.
+A production-ready RESTful API for managing tasks with JWT authentication stored in HTTP-only cookies.
 
 ### Features
-- **User Registration & Authentication**: Secure JWT-based authentication
+- **User Registration & Authentication**: Secure JWT-based authentication with cookies
+- **Email-based Login**: Login using email and password
 - **Task Management**: Full CRUD operations for personal tasks
 - **Filtering & Search**: Filter by status, priority, due date; search by title/description
 - **Pagination**: Paginated responses for large datasets
 
 ### Authentication
-All task endpoints require authentication. Include your JWT token in the Authorization header:
-```
-Authorization: Bearer <your_access_token>
-```
+This API uses HTTP-only cookies for secure token storage:
+- **Browser clients**: Tokens are automatically stored in secure cookies
+- **API clients**: Can still use `Authorization: Bearer <token>` header
 
 ### Quick Start
-1. Register a new user at `POST /api/register/`
-2. Obtain tokens at `POST /api/token/`
-3. Use the access token to authenticate requests
-4. Refresh expired tokens at `POST /api/token/refresh/`
+1. Register a new user at `POST /api/auth/register/`
+2. Login at `POST /api/auth/login/` with email and password
+3. Cookies are automatically set - no manual token handling needed!
+4. Logout at `POST /api/auth/logout/` to clear cookies
+5. Refresh tokens at `POST /api/auth/refresh/`
 ''',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
@@ -292,6 +302,12 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ]
+
+# Allow cookies to be sent with cross-origin requests
+CORS_ALLOW_CREDENTIALS = True
+
+# Expose headers to frontend
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 
 # =============================================================================

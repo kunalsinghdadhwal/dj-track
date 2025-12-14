@@ -1,14 +1,95 @@
 """
 Task Tracker Serializers
 
-This module defines serializers for User registration and Task operations.
+This module defines serializers for User registration, authentication,
+and Task operations.
 """
 
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth import authenticate
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from .models import Task
+
+
+class EmailLoginSerializer(serializers.Serializer):
+    """
+    Serializer for email-based login.
+
+    Authenticates users using email and password instead of username.
+    """
+
+    email = serializers.EmailField(
+        required=True,
+        help_text='User email address'
+    )
+    password = serializers.CharField(
+        required=True,
+        write_only=True,
+        style={'input_type': 'password'},
+        help_text='User password'
+    )
+
+    def validate(self, attrs):
+        """Validate email and password and return the user."""
+        email = attrs.get('email')
+        password = attrs.get('password')
+
+        # Find user by email
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({
+                'email': 'No user found with this email address.'
+            })
+
+        # Authenticate with username (Django's default)
+        user = authenticate(
+            request=self.context.get('request'),
+            username=user.username,
+            password=password
+        )
+
+        if not user:
+            raise serializers.ValidationError({
+                'password': 'Invalid password.'
+            })
+
+        if not user.is_active:
+            raise serializers.ValidationError({
+                'email': 'User account is disabled.'
+            })
+
+        attrs['user'] = user
+        return attrs
+
+
+class TokenRefreshSerializer(serializers.Serializer):
+    """
+    Serializer for token refresh.
+
+    When using cookies, the refresh token is read from cookies automatically,
+    but this serializer can also accept it in the body for API clients.
+    """
+
+    refresh = serializers.CharField(
+        required=False,
+        help_text='Refresh token (optional if using cookies)'
+    )
+
+
+class LogoutSerializer(serializers.Serializer):
+    """
+    Serializer for logout.
+
+    Optionally accepts refresh token to blacklist it.
+    """
+
+    refresh = serializers.CharField(
+        required=False,
+        help_text='Refresh token to blacklist (optional if using cookies)'
+    )
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
